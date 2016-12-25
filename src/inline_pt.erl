@@ -28,26 +28,25 @@ parse_transform(Forms, Options) ->
 inline_transform(Forms) ->
     case lists:member(export_all, CA = gav(compile, gv(attributes, AF = erl_syntax_lib:analyze_forms(Forms)))) of
         true -> Forms;
-        false ->
-            case (gv(functions, AF) -- gv(exports, AF)) -- gav(inline, CA) of
-                [_|_] = Functions ->
-                    case maps:fold(fun(F, false, A) -> [F|A];
-                                      (_, _, A) -> A
-                                   end, [],
-                                   lists:foldl(fun(Tree, Fs) ->
-                                                   erl_syntax_lib:fold(fun count_func_calls/2, Fs, Tree)
-                                               end,
-                                               lists:foldl(fun(F, A) -> A#{F => true} end, #{}, Functions),
-                                               Forms)) of
-                        [] -> Forms;
-                        IF ->
-                            {H, [{_, L}|_] = T} = lists:splitwith(fun({eof, _}) -> false;
-                                                                     (_) -> true
-                                                                  end, Forms),
-                            H ++ [{attribute, L, compile, [{inline, lists:sort(IF)}]}|T]
-                    end;
-                _ -> Forms
-            end
+        false -> case (gv(functions, AF) -- gv(exports, AF)) -- gav(inline, CA) of
+                     [_|_] = Functions ->
+                         case maps:fold(fun(F, false, A) -> [F|A];
+                                           (_, _, A) -> A
+                                        end, [],
+                                        lists:foldl(fun(Tree, Fs) ->
+                                                        erl_syntax_lib:fold(fun count_func_calls/2, Fs, Tree)
+                                                    end,
+                                                    lists:foldl(fun(F, A) -> A#{F => true} end, #{}, Functions),
+                                                    Forms)) of
+                             [] -> Forms;
+                             IF -> lists:foldr(fun({eof, L} = E, A) ->
+                                                   [{attribute, L, compile, [{inline, lists:sort(IF)}]}, E|A];
+                                                  (E, A) -> [E|A]
+                                               end, [], Forms)
+                         end;
+                     _ -> Forms
+                 end
+
     end.
 
 count_func_calls(Node, Acc) ->
