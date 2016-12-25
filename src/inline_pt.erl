@@ -41,7 +41,6 @@ inline_transform(Forms) ->
                                                Forms)) of
                         [] -> Forms;
                         IF ->
-                            io:fwrite("INLINE: ~p~n~n", [lists:sort(IF)]),
                             {H, [{_, L}|_] = T} = lists:splitwith(fun({eof, _}) -> false;
                                                                      (_) -> true
                                                                   end, Forms),
