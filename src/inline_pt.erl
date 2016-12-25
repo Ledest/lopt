@@ -21,12 +21,14 @@
 
 -record(state, {forms :: list(), verbose :: boolean()}).
 
+-spec parse_transform(Forms::[erl_syntax:syntaxTree()], proplists:proplist()) -> [erl_syntax:syntaxTree()].
 parse_transform(Forms, Options) ->
     case proplists:get_bool(inline, Options) of
         true -> inline_transform(#state{forms = Forms, verbose = proplists:get_bool(verbose, Options)});
         _ -> Forms
     end.
 
+-spec inline_transform(S::#state{}) -> [erl_syntax:syntaxTree()].
 inline_transform(#state{forms = Forms} = S) ->
     case lists:member(export_all, CA = gav(compile, gv(attributes, AF = erl_syntax_lib:analyze_forms(Forms)))) of
         true -> Forms;
@@ -55,6 +57,8 @@ inline_transform(#state{forms = Forms} = S) ->
 
     end.
 
+-spec count_func_calls(Node::erl_syntax:syntaxTree(), Acc::#{{atom(), arity()} => boolean()}) ->
+          #{{atom(), arity()} => boolean()}.
 count_func_calls(Node, Acc) ->
     case analyze(Node) of
         {Name, Arity} = F when is_atom(Name), is_integer(Arity) ->
@@ -66,6 +70,7 @@ count_func_calls(Node, Acc) ->
         _ -> Acc
     end.
 
+-spec analyze(Node::erl_syntax:syntaxTree()) -> {atom(), arity()} | {module(), atom()} | atom() | false.
 analyze(Node) ->
     case erl_syntax:type(Node) of
         application -> erl_syntax_lib:analyze_application(Node);
@@ -73,12 +78,14 @@ analyze(Node) ->
         _ -> false
     end.
 
+-spec gv(K::term(), L::list()) -> term().
 gv(K, L) ->
     case lists:keyfind(K, 1, L) of
         {_, V} -> V;
         _ -> []
     end.
 
+-spec gav(Key::term(), L::list()) -> list().
 gav(Key, L) -> lists:flatten([V || {K, V} <- L, K =:= Key]).
 
 -compile({inline, [inline_transform/1, analyze/1, count_func_calls/2]}).
