@@ -44,7 +44,7 @@ inline_transform(#state{forms = Forms} = S) ->
                              IF ->
                                  IFS = lists:sort(IF),
                                  S#state.verbose andalso
-                                     io:fwrite(?MODULE_STRING ": module = ~s, functions = ~p~n", [gv(module, AF), IFS]),
+                                     io:fwrite(?MODULE_STRING ": module=~p, functions=~p~n", [gv(module, AF), IFS]),
                                  lists:foldr(fun({eof, L} = E, A) ->
                                                  [{attribute, L, compile, [{inline, IFS}]}, E|A];
                                                 (E, A) -> [E|A]
