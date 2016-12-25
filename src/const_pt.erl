@@ -309,35 +309,29 @@ const_transform(#state{node = Node} = State) ->
     end.
 
 -spec call(Fs::sets:set(mfa()), Mod::module(), Fun::atom(), Args::list()) -> false | erl_syntax:syntaxTree().
-call(_Fs, Mod, Fun, []) ->
-    try apply(Mod, Fun, []) of
-        R -> erl_syntax:abstract(R)
-    catch _:_ -> false
-    end;
+call(_Fs, Mod, Fun, []) -> try_call(Mod, Fun);
 call(Fs, Mod, Fun, Args) ->
-    lists:all(fun(A) -> erl_syntax:is_literal(A) orelse is_pure_fun(A, Fs) end, Args)
-        andalso begin
-                A = lists:map(fun concrete/1, Args),
-                try apply(Mod, Fun, A) of
-                    R -> erl_syntax:abstract(R)
-                catch _:_ -> false
-                end
-                end.
+    lists:all(fun(A) -> erl_syntax:is_literal(A) orelse is_pure_fun(A, Fs) end, Args) andalso try_call(Mod, Fun, Args).
 
--spec call(F::atom(), Args::list()) -> false | erl_syntax:syntaxTree().
-call(F, []) ->
-    try apply(erlang, F, []) of
+-spec call(Fun::atom(), Args::list()) -> false | erl_syntax:syntaxTree().
+call(Fun, []) -> try_call(erlang, Fun);
+call(Fun, Args) ->
+    lists:all(fun erl_syntax:is_literal/1, Args) andalso try_call(erlang, Fun, Args).
+
+-spec try_call(Mod::module(), Fun::atom()) -> false | erl_syntax:syntaxTree().
+try_call(Mod, Fun) ->
+    try Mod:Fun() of
         R -> erl_syntax:abstract(R)
     catch _:_ -> false
-    end;
-call(F, Args) ->
-    lists:all(fun erl_syntax:is_literal/1, Args) andalso begin
-                                                         A = lists:map(fun concrete/1, Args),
-                                                         try apply(erlang, F, A) of
-                                                             R -> erl_syntax:abstract(R)
-                                                         catch _:_ -> false
-                                                         end
-                                                         end.
+    end.
+
+-spec try_call(Mod::module(), Fun::atom(), Args::list()) -> false | erl_syntax:syntaxTree().
+try_call(Mod, Fun, Args) ->
+    A = lists:map(fun concrete/1, Args),
+    try apply(Mod, Fun, A) of
+        R -> erl_syntax:abstract(R)
+    catch _:_ -> false
+    end.
 
 -spec is_pure(F::mfa()|{module(), {atom(), arity()}}|{atom(), arity()}|term(), Fs::sets:set(mfa())) -> boolean().
 is_pure({_, module_info, A}, _) when A =:= 0; A =:= 1 -> false;
