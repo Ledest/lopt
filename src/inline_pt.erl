@@ -54,7 +54,7 @@ count_func_calls(Node, Acc) ->
     case analyze(Node) of
         {Name, Arity} = F when is_atom(Name), is_integer(Arity) ->
             case Acc of
-                #{F := true} -> Acc#{F := false};
+                #{F := true} -> Acc#{F => false};
                 #{F := _} -> maps:remove(F, Acc);
                 _ -> Acc
             end;
