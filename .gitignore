@@ -1,0 +1,10 @@
+.rebar
+*.beam
+*~
+*.swp
+/ebin
+/doc
+.project
+.kateproject
+erl_crash.dump
+/test

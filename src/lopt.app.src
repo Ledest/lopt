@@ -1,0 +1,7 @@
+{application, lopt, [{description, "L Optimization"},
+                     {vsn, "0.1.0"},
+                     {registered, []},
+                     {applications, [kernel, stdlib]},
+                     {modules, []},
+                     {env, []},
+                     {licenses, ["GPL-3.0+"]}]}.
