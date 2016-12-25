@@ -19,13 +19,15 @@
 
 -export([parse_transform/2]).
 
+-record(state, {forms :: list(), verbose :: boolean()}).
+
 parse_transform(Forms, Options) ->
     case proplists:get_bool(inline, Options) of
-        true -> inline_transform(Forms);
+        true -> inline_transform(#state{forms = Forms, verbose = proplists:get_bool(verbose, Options)});
         _ -> Forms
     end.
 
-inline_transform(Forms) ->
+inline_transform(#state{forms = Forms} = S) ->
     case lists:member(export_all, CA = gav(compile, gv(attributes, AF = erl_syntax_lib:analyze_forms(Forms)))) of
         true -> Forms;
         false -> case (gv(functions, AF) -- gv(exports, AF)) -- gav(inline, CA) of
@@ -39,10 +41,14 @@ inline_transform(Forms) ->
                                                     lists:foldl(fun(F, A) -> A#{F => true} end, #{}, Functions),
                                                     Forms)) of
                              [] -> Forms;
-                             IF -> lists:foldr(fun({eof, L} = E, A) ->
-                                                   [{attribute, L, compile, [{inline, lists:sort(IF)}]}, E|A];
-                                                  (E, A) -> [E|A]
-                                               end, [], Forms)
+                             IF ->
+                                 IFS = lists:sort(IF),
+                                 S#state.verbose andalso
+                                     io:fwrite(?MODULE_STRING ": module = ~s, functions = ~p~n", [gv(module, AF), IFS]),
+                                 lists:foldr(fun({eof, L} = E, A) ->
+                                                 [{attribute, L, compile, [{inline, IFS}]}, E|A];
+                                                (E, A) -> [E|A]
+                                             end, [], Forms)
                          end;
                      _ -> Forms
                  end
