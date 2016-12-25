@@ -79,6 +79,6 @@ gv(K, L) ->
         _ -> []
     end.
 
-gav(Key, L) -> lists:flatten(lists:filtermap(fun({K, V}) -> K =:= Key andalso {true, V} end, L)).
+gav(Key, L) -> lists:flatten([V || {K, V} <- L, K =:= Key]).
 
 -compile({inline, [inline_transform/1, analyze/1, count_func_calls/2]}).
