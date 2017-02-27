@@ -223,7 +223,8 @@
                               {zlib, zip, 2},
                               {zlib, unzip, 2}]).
 
--record(state, {pure = sets:new() :: sets:set(mfa()),
+-record(state, {verbose :: boolean(),
+                pure = sets:new() :: sets:set(mfa()),
                 module :: module(),
                 exports = sets:new() :: sets:set({atom(), arity()}),
                 imports = sets:new() :: sets:set(mfa()),
@@ -233,21 +234,21 @@
                 node = false :: erl_syntax:syntaxTree()|false}).
 
 -spec parse_transform(Forms::[erl_syntax:syntaxTree()], proplists:proplist()) -> [erl_syntax:syntaxTree()].
-parse_transform(Forms, _Options) ->
+parse_transform(Forms, Options) ->
     try erl_syntax_lib:analyze_forms(Forms) of
-       AF ->
-           State = #state{pure = sets:from_list(lists:filter(fun(MFA) -> is_atom(MFA) orelse not is_pure(MFA) end,
-                                                             ?TRANSFORM_FUNCTIONS)),
-                          module = gv(module, AF),
-                          exports = sets:from_list(gl(exports, AF)),
-                          imports = sets:from_list(gl(imports, AF)),
-                          functions = sets:from_list(gl(functions, AF)),
-                          no_auto_imports = sets:from_list(get_no_auto_import(AF))},
-           {NewForms, _} = lists:mapfoldl(fun(Tree, S) ->
-                                              NewState = #state{tree = NewTree} = transform(S#state{tree = Tree}),
-                                              {erl_syntax:revert(NewTree), NewState}
-                                          end, State, Forms),
-           NewForms
+        AF ->
+            State = #state{verbose = proplists:get_bool(verbose, Options),
+                           pure = sets:from_list([MFA || MFA <- ?TRANSFORM_FUNCTIONS, is_atom(MFA) orelse not is_pure(MFA)]),
+                           module = gv(module, AF),
+                           exports = sets:from_list(gl(exports, AF)),
+                           imports = sets:from_list(gl(imports, AF)),
+                           functions = sets:from_list(gl(functions, AF)),
+                           no_auto_imports = sets:from_list(get_no_auto_import(AF))},
+            {NewForms, _} = lists:mapfoldl(fun(Tree, S) ->
+                                               NewState = #state{tree = NewTree} = transform(S#state{tree = Tree}),
+                                               {erl_syntax:revert(NewTree), NewState}
+                                           end, State, Forms),
+            NewForms
     catch
         C:E ->
             io:fwrite(standard_error,
@@ -289,47 +290,55 @@ transform(#state{tree = Tree} = State) ->
     end.
 
 -spec const_transform(State::#state{}) -> #state{}.
-const_transform(#state{node = Node} = State) ->
+const_transform(#state{verbose = V, node = Node} = State) ->
     case erl_syntax:type(Node) of
         application ->
             case erl_syntax_lib:analyze_application(Node) of
                 {M, {F, A}} ->
                     Fs = State#state.pure,
                     State#state{node = is_pure({M, F, A}, Fs) andalso
-                                           call(Fs, M, F, erl_syntax:application_arguments(Node))};
+                                           call(V, Fs, M, F, erl_syntax:application_arguments(Node))};
                 _ -> State#state{node = false}
             end;
         infix_expr ->
             O = erl_syntax:operator_name(erl_syntax:infix_expr_operator(Node)),
             State#state{node = not erl_internal:send_op(O, 2) andalso
-                                   call(O, [erl_syntax:infix_expr_left(Node), erl_syntax:infix_expr_right(Node)])};
-        prefix_expr -> State#state{node = call(erl_syntax:operator_name(erl_syntax:prefix_expr_operator(Node)),
+                                   call(V, O, [erl_syntax:infix_expr_left(Node), erl_syntax:infix_expr_right(Node)])};
+        prefix_expr -> State#state{node = call(V, erl_syntax:operator_name(erl_syntax:prefix_expr_operator(Node)),
                                                [erl_syntax:prefix_expr_argument(Node)])};
         _ -> State#state{node = false}
     end.
 
--spec call(Fs::sets:set(mfa()), Mod::module(), Fun::atom(), Args::list()) -> false | erl_syntax:syntaxTree().
-call(_Fs, Mod, Fun, []) -> try_call(Mod, Fun);
-call(Fs, Mod, Fun, Args) ->
-    lists:all(fun(A) -> erl_syntax:is_literal(A) orelse is_pure_fun(A, Fs) end, Args) andalso try_call(Mod, Fun, Args).
+-spec call(V::boolean(), Fs::sets:set(mfa()), Mod::module(), Fun::atom(), Args::list()) ->
+          false | erl_syntax:syntaxTree().
+call(V, _Fs, Mod, Fun, []) -> try_call(V, Mod, Fun);
+call(V, Fs, Mod, Fun, Args) ->
+    lists:all(fun(A) -> erl_syntax:is_literal(A) orelse is_pure_fun(A, Fs) end, Args) andalso
+        try_call(V, Mod, Fun, Args).
 
--spec call(Fun::atom(), Args::list()) -> false | erl_syntax:syntaxTree().
-call(Fun, []) -> try_call(erlang, Fun);
-call(Fun, Args) ->
-    lists:all(fun erl_syntax:is_literal/1, Args) andalso try_call(erlang, Fun, Args).
+-spec call(V::boolean(), Fun::atom(), Args::list()) -> false | erl_syntax:syntaxTree().
+call(V, Fun, []) -> try_call(V, erlang, Fun);
+call(V, Fun, Args) ->
+    lists:all(fun erl_syntax:is_literal/1, Args) andalso try_call(V, erlang, Fun, Args).
 
--spec try_call(Mod::module(), Fun::atom()) -> false | erl_syntax:syntaxTree().
-try_call(Mod, Fun) ->
+-spec try_call(V::boolean(), Mod::module(), Fun::atom()) -> false | erl_syntax:syntaxTree().
+try_call(V, Mod, Fun) ->
     try Mod:Fun() of
-        R -> erl_syntax:abstract(R)
+        R ->
+            V andalso io:fwrite(?MODULE_STRING ": ~s:~s()~n", [Mod, Fun]),
+            erl_syntax:abstract(R)
     catch _:_ -> false
     end.
 
--spec try_call(Mod::module(), Fun::atom(), Args::list()) -> false | erl_syntax:syntaxTree().
-try_call(Mod, Fun, Args) ->
+-spec try_call(V::boolean(), Mod::module(), Fun::atom(), Args::list()) -> false | erl_syntax:syntaxTree().
+try_call(V, Mod, Fun, Args) ->
     A = lists:map(fun concrete/1, Args),
     try apply(Mod, Fun, A) of
-        R -> erl_syntax:abstract(R)
+        R ->
+            V andalso io:fwrite(?MODULE_STRING ":~B: ~p:~p(~ts)~n",
+                                [erl_syntax:get_pos(hd(Args)), Mod, Fun,
+                                 string:join(lists:map(fun(X) -> io_lib:print(erl_syntax:concrete(X)) end, Args), ",")]),
+            erl_syntax:abstract(R)
     catch _:_ -> false
     end.
 
