@@ -94,7 +94,7 @@
                               {erlang, binary_to_integer, 2},
                               {erlang, binary_to_list, 1},
                               {erlang, binary_to_list, 3},
-                              {erlang, bitsring_to_list, 1},
+                              {erlang, bitstring_to_list, 1},
                               {erlang, binary_to_term, 1},
                               {erlang, binary_to_term, 2},
                               {erlang, bit_size, 1},
@@ -227,9 +227,8 @@
                 pure = sets:new() :: sets:set(mfa()),
                 module :: module(),
                 exports = sets:new() :: sets:set({atom(), arity()}),
-                imports = sets:new() :: sets:set(mfa()),
+                imports = sets:new() :: dict:dict({atom(), arity()}, module()),
                 functions = sets:new() :: sets:set({atom(), arity()}),
-                no_auto_imports = sets:new() :: sets:set(mfa()),
                 tree :: erl_syntax:syntaxTree(),
                 node = false :: erl_syntax:syntaxTree()|false}).
 
@@ -237,13 +236,14 @@
 parse_transform(Forms, Options) ->
     try erl_syntax_lib:analyze_forms(Forms) of
         AF ->
+            Fs = sets:from_list(gl(functions, AF)),
             State = #state{verbose = proplists:get_bool(verbose, Options),
-                           pure = sets:from_list([MFA || MFA <- ?TRANSFORM_FUNCTIONS, is_atom(MFA) orelse not is_pure(MFA)]),
+                           pure = sets:from_list([MFA || MFA <- ?TRANSFORM_FUNCTIONS,
+                                                                is_atom(MFA) orelse not is_pure(MFA)]),
                            module = gv(module, AF),
                            exports = sets:from_list(gl(exports, AF)),
-                           imports = sets:from_list(gl(imports, AF)),
-                           functions = sets:from_list(gl(functions, AF)),
-                           no_auto_imports = sets:from_list(get_no_auto_import(AF))},
+                           imports = get_imports(AF, Fs),
+                           functions = Fs},
             {NewForms, _} = lists:mapfoldl(fun(Tree, S) ->
                                                NewState = #state{tree = NewTree} = transform(S#state{tree = Tree}),
                                                {erl_syntax:revert(NewTree), NewState}
@@ -257,11 +257,11 @@ parse_transform(Forms, Options) ->
             Forms
     end.
 
--spec gv(K::term(), L::list(), D::term()) -> term().
+-spec gv(K::term(), L::list(), D) -> D | term().
 gv(K, L, D) ->
     case lists:keyfind(K, 1, L) of
-        {ok, V} -> V;
-        _ -> D
+        {_, V} -> V;
+        _false -> D
     end.
 
 -spec gv(K::term(), L::list()) -> undefined | term().
@@ -276,13 +276,27 @@ ga(K, L) -> [V || {Key, V} <- L, Key =:= K].
 -spec get_no_auto_import(AF::list()) -> [mfa()].
 get_no_auto_import(AF) -> lists:flatten(ga(no_auto_import, ga(compile, gl(attributes, AF)))).
 
+-spec get_imports(AF::list(), Fs::sets:set({atom(), arity()})) -> dict:dict({atom(), arity()}, module()).
+get_imports(AF, Fs) ->
+    NAI = sets:from_list(get_no_auto_import(AF)),
+    lists:foldl(fun({M, IFs}, D) ->
+                    lists:foldl(fun(FA, A) ->
+                                    case sets:is_element(FA, Fs) of
+                                        false -> dict:store(FA, M, A);
+                                        _true -> A
+                                    end
+                                end, D, IFs)
+                end, dict:new(),
+                [{erlang, [{F, A} || {erlang, F, A} <- ?TRANSFORM_FUNCTIONS,
+                                                       erl_internal:bif(F, A),
+                                                       not sets:is_element({F, A}, NAI)]}|gl(imports, AF)]).
+
 -spec transform(State::#state{}) -> #state{}.
 transform(#state{tree = Tree} = State) ->
     case erl_syntax_lib:mapfold(fun(T, F) ->
                                     case const_transform(State#state{node = T}) of
                                         #state{node = false} -> {T, F};
-                                        #state{node = Node} = S ->
-                                            {erl_syntax_lib:map(fun(N) -> erl_syntax:copy_pos(T, N) end, Node), S}
+                                        #state{node = Node} = S -> {erl_syntax:copy_pos(T, Node), S}
                                     end
                                 end, false, Tree) of
         {_, false} -> State;
@@ -290,27 +304,78 @@ transform(#state{tree = Tree} = State) ->
     end.
 
 -spec const_transform(State::#state{}) -> #state{}.
-const_transform(#state{verbose = V, node = Node} = State) ->
-    case erl_syntax:type(Node) of
-        application ->
-            case erl_syntax_lib:analyze_application(Node) of
-                {M, {F, A}} ->
-                    Fs = State#state.pure,
-                    State#state{node = is_pure({M, F, A}, Fs) andalso
-                                           call(V, Fs, M, F, erl_syntax:application_arguments(Node))};
-                _ -> State#state{node = false}
-            end;
-        infix_expr ->
-            O = erl_syntax:operator_name(erl_syntax:infix_expr_operator(Node)),
-            State#state{node = not erl_internal:send_op(O, 2) andalso
-                                   call(V, O, [erl_syntax:infix_expr_left(Node), erl_syntax:infix_expr_right(Node)])};
-        prefix_expr -> State#state{node = call(V, erl_syntax:operator_name(erl_syntax:prefix_expr_operator(Node)),
-                                               [erl_syntax:prefix_expr_argument(Node)])};
-        _ -> State#state{node = false}
-    end.
+const_transform(#state{node = Node} = State) -> const_transform(State, erl_syntax:type(Node)).
+
+const_transform(#state{node = Node} = State, application) ->
+    State#state{node = case erl_syntax_lib:analyze_application(Node) of
+                           {M, {F, A}} -> const_transform(State, M, F, A);
+                           {F, A} = FA -> case dict:find(FA, State#state.imports) of
+                                              {ok, M} -> const_transform(State, M, F, A);
+                                              _error -> false
+                                          end;
+                           _ -> false
+                       end};
+const_transform(#state{verbose = V, node = Node} = State, infix_expr) ->
+    O = erl_syntax:operator_name(erl_syntax:infix_expr_operator(Node)),
+    State#state{node = not erl_internal:send_op(O, 2) andalso
+                           copy_pos(Node,
+                                    call(V, O, [erl_syntax:infix_expr_left(Node), erl_syntax:infix_expr_right(Node)]))};
+const_transform(#state{verbose = V, node = Node} = State, prefix_expr) ->
+    State#state{node = copy_pos(Node, call(V, erl_syntax:operator_name(erl_syntax:prefix_expr_operator(Node)),
+                                           [erl_syntax:prefix_expr_argument(Node)]))};
+const_transform(#state{node = Node} = State, fun_expr) ->
+    State#state{node = const_transform(State, fun_expr, erl_syntax:fun_expr_clauses(Node))};
+const_transform(#state{} = State, _) -> State#state{node = false}.
+
+const_transform(#state{node = Node} = State, fun_expr, [Clause]) ->
+    erl_syntax:clause_guard(Clause) =:= none andalso const_transform(State, fun_expr,
+                                                                     erl_syntax:fun_expr_arity(Node),
+                                                                     erl_syntax:clause_patterns(Clause),
+                                                                     erl_syntax:clause_body(Clause));
+const_transform(#state{}, _, _) -> false.
+
+-spec const_transform(State::#state{}, M::module(), F::atom(), A::arity()) -> erl_syntax:syntaxTree() | false.
+const_transform(#state{node = Node, verbose = V, pure = P}, M, F, A) ->
+    is_pure({M, F, A}, P) andalso copy_pos(Node, call(V, P, M, F, erl_syntax:application_arguments(Node))).
+
+const_transform(#state{}, fun_expr, 0, [], [B]) ->
+    erl_syntax:type(B) =:= application andalso
+        case erl_syntax_lib:analyze_application(B) of
+            {M, {F, 0}} ->
+                O = erl_syntax:application_operator(B),
+                MB = erl_syntax:module_qualifier_body(O),
+                implicit_fun(M, F, 0, O, MB, MB);
+            {F, 0} -> erl_syntax:implicit_fun(none, erl_syntax:atom(F), erl_syntax:integer(0));
+            _ -> false
+        end;
+const_transform(#state{}, fun_expr, A, P, [B]) ->
+    case erl_syntax:type(B) of
+        application -> case erl_syntax_lib:analyze_application(B) of
+                           {M, {F, A}} ->
+                               AA = erl_syntax:application_arguments(B),
+                               compare_arguments(P, AA) andalso
+                                   begin
+                                   O = erl_syntax:application_operator(B),
+                                   implicit_fun(M, F, A, O, erl_syntax:module_qualifier_body(O), hd(AA))
+                                   end;
+                           {F, A} -> compare_arguments(P, erl_syntax:application_arguments(B)) andalso
+                                         erl_syntax:implicit_fun(none, erl_syntax:atom(F), erl_syntax:integer(A));
+                           _ -> false
+                       end;
+        _ -> false
+    end;
+const_transform(#state{}, _, _, _, _) -> false.
+
+-spec implicit_fun(M::module(), F::atom(), A::arity(), O::erl_syntax:syntaxTree(), MB::erl_syntax:syntaxTree(),
+                   A1::erl_syntax:syntaxTree()) ->
+          erl_syntax:syntaxTree().
+implicit_fun(M, F, A, O, MB, A1) ->
+    erl_syntax:implicit_fun(erl_syntax:copy_pos(O, erl_syntax:atom(M)),
+                            erl_syntax:copy_pos(MB, erl_syntax:atom(F)),
+                            erl_syntax:copy_pos(A1, erl_syntax:integer(A))).
 
 -spec call(V::boolean(), Fs::sets:set(mfa()), Mod::module(), Fun::atom(), Args::list()) ->
-          false | erl_syntax:syntaxTree().
+    erl_syntax:syntaxTree() | false.
 call(V, _Fs, Mod, Fun, []) -> try_call(V, Mod, Fun);
 call(V, Fs, Mod, Fun, Args) ->
     lists:all(fun(A) -> erl_syntax:is_literal(A) orelse is_pure_fun(A, Fs) end, Args) andalso
@@ -354,16 +419,35 @@ is_pure(_, _) -> false.
 is_pure({M, F, A}) -> erl_bifs:is_pure(M, F, A).
 
 -spec is_pure_fun(A::erl_syntax:syntaxTree(), Fs::sets:set(mfa())) -> false | erl_syntax:syntaxTree().
-is_pure_fun(A, Fs) ->
-    erl_syntax:type(A) =:= implicit_fun andalso try is_pure(erl_syntax_lib:analyze_implicit_fun(A), Fs)
-                                                catch throw:syntax_error -> false
-                                                end.
+is_pure_fun(A, Fs) -> is_pure_fun(A, Fs, erl_syntax:type(A)).
+
+-spec is_pure_fun(A::erl_syntax:syntaxTree(), Fs::sets:set(mfa()), atom()) -> false | erl_syntax:syntaxTree().
+is_pure_fun(A, Fs, implicit_fun) ->
+    try
+        is_pure(erl_syntax_lib:analyze_implicit_fun(A), Fs)
+    catch
+        throw:syntax_error -> false
+    end;
+is_pure_fun(_, _, _) -> false.
 
 -spec concrete(Node::erl_syntax:syntaxTree()) -> term().
-concrete(Node) ->
-    case erl_syntax:type(Node) of
-        implicit_fun ->
-            {M, {F, A}} = erl_syntax_lib:analyze_implicit_fun(Node),
-            fun M:F/A;
-        _ -> erl_syntax:concrete(Node)
-    end.
+concrete(Node) -> concrete(Node, erl_syntax:type(Node)).
+
+-spec concrete(Node::erl_syntax:syntaxTree(), atom()) -> term().
+concrete(Node, implicit_fun) ->
+    {M, {F, A}} = erl_syntax_lib:analyze_implicit_fun(Node),
+    fun M:F/A;
+concrete(Node, _) -> erl_syntax:concrete(Node).
+
+-spec compare_arguments([erl_syntax:syntaxTree()], [erl_syntax:syntaxTree()]) -> boolean().
+compare_arguments([], []) -> true;
+compare_arguments([A|X], [B|Y]) ->
+    erl_syntax:type(A) =:= variable andalso erl_syntax:type(B) =:= variable
+         andalso erl_syntax:variable_name(A) =:= erl_syntax:variable_name(B)
+         andalso compare_arguments(X, Y);
+compare_arguments(_, _) -> false.
+
+-spec copy_pos(Source::erl_syntax:syntaxTree(), Tree::erl_syntax:syntaxTree()) -> erl_syntax:syntaxTree();
+              (Source::erl_syntax:syntaxTree(), false) -> false.
+copy_pos(_, false) -> false;
+copy_pos(Source, Tree) -> erl_syntax_lib:map(fun(N) -> erl_syntax:copy_pos(Source, N) end, Tree).
