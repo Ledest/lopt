@@ -389,25 +389,34 @@ call(State, Fun, Args) ->
     lists:all(fun erl_syntax:is_literal/1, Args) andalso try_call(State, erlang, Fun, Args).
 
 -spec try_call(State::#state{}, Mod::module(), Fun::atom()) -> false | erl_syntax:syntaxTree().
-try_call(State, Mod, Fun) ->
+try_call(#state{verbose = V, file = F}, Mod, Fun) ->
     try Mod:Fun() of
         R ->
-            State#state.verbose andalso io:fwrite(?MODULE_STRING ": ~s: ~s:~s()~n", [State#state.file, Mod, Fun]),
+            V andalso io:fwrite(?MODULE_STRING ": ~s: ~p:~p() => ~p~n", [F, Mod, Fun, R]),
             erl_syntax:abstract(R)
-    catch _:_ -> false
+    catch
+        error:R ->
+            V andalso io:fwrite(?MODULE_STRING ": ~s: ~p:~p() => erlang:error(~p)~n", [F, Mod, Fun, R]),
+            erl_syntax:application(erl_syntax:atom(erlang), erl_syntax:atom(error), [erl_syntax:abstract(R)]);
+        _:_ -> false
     end.
 
 -spec try_call(State::#state{}, Mod::module(), Fun::atom(), Args::list()) -> false | erl_syntax:syntaxTree().
-try_call(State, Mod, Fun, Args) ->
+try_call(#state{verbose = V, file = F}, Mod, Fun, Args) ->
     A = [concrete(X) || X <- Args],
     try apply(Mod, Fun, A) of
         R ->
-            State#state.verbose andalso
-                io:fwrite(?MODULE_STRING ": ~s:~B: ~p:~p(~ts)~n",
-                          [State#state.file, erl_syntax:get_pos(hd(Args)), Mod, Fun,
-                           string:join([io_lib:print(erl_syntax:concrete(X)) || X <- Args], ",")]),
+            V andalso io:fwrite(?MODULE_STRING ": ~s:~B: ~p:~p(~ts) => ~p~n",
+                                [F, erl_syntax:get_pos(hd(Args)), Mod, Fun,
+                                 string:join([io_lib:print(erl_syntax:concrete(X)) || X <- Args], ","), R]),
             erl_syntax:abstract(R)
-    catch _:_ -> false
+    catch
+        error:R ->
+            V andalso io:fwrite(?MODULE_STRING ": ~s:~B: ~p:~p(~ts) => erlang:error(~p)~n",
+                                [F, erl_syntax:get_pos(hd(Args)), Mod, Fun,
+                                 string:join([io_lib:print(erl_syntax:concrete(X)) || X <- Args], ","), R]),
+            erl_syntax:application(erl_syntax:atom(erlang), erl_syntax:atom(error), [erl_syntax:abstract(R)]);
+        _:_ -> false
     end.
 
 -spec is_pure(F::mfa()|{module(), {atom(), arity()}}|{atom(), arity()}|term(), Fs::sets:set(mfa())) -> boolean().
