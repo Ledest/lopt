@@ -399,13 +399,13 @@ try_call(State, Mod, Fun) ->
 
 -spec try_call(State::#state{}, Mod::module(), Fun::atom(), Args::list()) -> false | erl_syntax:syntaxTree().
 try_call(State, Mod, Fun, Args) ->
-    A = lists:map(fun concrete/1, Args),
+    A = [concrete(X) || X <- Args],
     try apply(Mod, Fun, A) of
         R ->
             State#state.verbose andalso
                 io:fwrite(?MODULE_STRING ": ~s:~B: ~p:~p(~ts)~n",
                           [State#state.file, erl_syntax:get_pos(hd(Args)), Mod, Fun,
-                           string:join(lists:map(fun(X) -> io_lib:print(erl_syntax:concrete(X)) end, Args), ",")]),
+                           string:join([io_lib:print(erl_syntax:concrete(X)) || X <- Args], ",")]),
             erl_syntax:abstract(R)
     catch _:_ -> false
     end.
