@@ -147,7 +147,6 @@
                               {erlang, list_to_float, 1},
                               {erlang, list_to_integer, 1},
                               {erlang, list_to_integer, 2},
-                              {erlang, list_to_pid, 1},
                               {erlang, list_to_tuple, 1},
                               {erlang, make_tuple, 2},
                               {erlang, make_tuple, 3},
@@ -161,8 +160,6 @@
                               {erlang, phash, 2},
                               {erlang, phash2, 1},
                               {erlang, phash2, 2},
-                              {erlang, pid_to_list, 1},
-                              {erlang, ref_to_list, 1},
                               {erlang, round, 1},
                               {erlang, setelement, 3},
                               {erlang, size, 1},
@@ -269,6 +266,8 @@ gv(K, L) -> gv(K, L, undefined).
 -spec gl(K::term(), L::list()) -> [] | term().
 gl(K, L) -> gv(K, L, []).
 
+-compile({inline, [gv/2]}).
+
 -spec ga(K::term(), L::list()) -> list().
 ga(K, L) -> [V || {Key, V} <- L, Key =:= K].
 
@@ -290,12 +289,14 @@ get_imports(AF, Fs) ->
                                                        erl_internal:bif(F, A),
                                                        not sets:is_element({F, A}, NAI)]}|gl(imports, AF)]).
 
+-compile({inline, [get_imports/2]}).
+
 -spec transform(State::#state{}) -> #state{}.
 transform(#state{tree = Tree} = State) ->
     case erl_syntax:type(Tree) =:= attribute andalso erl_syntax_lib:analyze_attribute(Tree) of
         {file, {F, _}} -> State#state{file = F};
         _ -> case erl_syntax_lib:mapfold(fun(T, F) ->
-                                             case const_transform(State#state{node = T}) of
+                                             case transform(State#state{node = T}, erl_syntax:type(T)) of
                                                  #state{node = false} -> {T, F};
                                                  #state{node = Node} = S -> {erl_syntax:copy_pos(T, Node), S}
                                              end
@@ -305,43 +306,43 @@ transform(#state{tree = Tree} = State) ->
              end
     end.
 
--spec const_transform(State::#state{}) -> #state{}.
-const_transform(#state{node = Node} = State) -> const_transform(State, erl_syntax:type(Node)).
-
-const_transform(#state{node = Node} = State, application) ->
+-spec transform(State::#state{}, atom()) -> #state{}.
+transform(#state{node = Node} = State, application) ->
     State#state{node = case erl_syntax_lib:analyze_application(Node) of
-                           {M, {F, A}} -> const_transform(State, M, F, A);
+                           {M, {F, A}} -> transform(State, M, F, A);
                            {F, A} = FA -> case dict:find(FA, State#state.imports) of
-                                              {ok, M} -> const_transform(State, M, F, A);
+                                              {ok, M} -> transform(State, M, F, A);
                                               _error -> false
                                           end;
                            _ -> false
                        end};
-const_transform(#state{node = Node} = State, infix_expr) ->
+transform(#state{node = Node} = State, infix_expr) ->
     O = erl_syntax:operator_name(erl_syntax:infix_expr_operator(Node)),
     State#state{node = not erl_internal:send_op(O, 2) andalso
-                           copy_pos(Node,
-                                    call(State, O,
-                                         [erl_syntax:infix_expr_left(Node), erl_syntax:infix_expr_right(Node)]))};
-const_transform(#state{node = Node} = State, prefix_expr) ->
+                       copy_pos(Node,
+                                call(State, O, [erl_syntax:infix_expr_left(Node), erl_syntax:infix_expr_right(Node)]))};
+transform(#state{node = Node} = State, prefix_expr) ->
     State#state{node = copy_pos(Node, call(State, erl_syntax:operator_name(erl_syntax:prefix_expr_operator(Node)),
                                            [erl_syntax:prefix_expr_argument(Node)]))};
-const_transform(#state{node = Node} = State, fun_expr) ->
-    State#state{node = const_transform(State, fun_expr, erl_syntax:fun_expr_clauses(Node))};
-const_transform(#state{} = State, _) -> State#state{node = false}.
+transform(#state{node = Node} = State, fun_expr) ->
+    State#state{node = transform(State, fun_expr, erl_syntax:fun_expr_clauses(Node))};
+transform(#state{} = State, _) -> State#state{node = false}.
 
-const_transform(#state{node = Node} = State, fun_expr, [Clause]) ->
-    erl_syntax:clause_guard(Clause) =:= none andalso const_transform(State, fun_expr,
-                                                                     erl_syntax:fun_expr_arity(Node),
-                                                                     erl_syntax:clause_patterns(Clause),
-                                                                     erl_syntax:clause_body(Clause));
-const_transform(#state{}, _, _) -> false.
+-spec transform(State::#state{}, atom(), [erl_syntax:syntaxTree(),...]) -> erl_syntax:syntaxTree() | false.
+transform(#state{node = Node} = State, fun_expr, [Clause]) ->
+    erl_syntax:clause_guard(Clause) =:= none andalso transform(State, fun_expr, erl_syntax:fun_expr_arity(Node),
+                                                               erl_syntax:clause_patterns(Clause),
+                                                               erl_syntax:clause_body(Clause));
+transform(#state{}, _, _) -> false.
 
--spec const_transform(State::#state{}, M::module(), F::atom(), A::arity()) -> erl_syntax:syntaxTree() | false.
-const_transform(#state{node = Node, pure = P} = State, M, F, A) ->
+-spec transform(State::#state{}, M::module(), F::atom(), A::arity()) -> erl_syntax:syntaxTree() | false.
+transform(#state{node = Node, pure = P} = State, M, F, A) ->
     is_pure({M, F, A}, P) andalso copy_pos(Node, call(State, M, F, erl_syntax:application_arguments(Node))).
 
-const_transform(#state{}, fun_expr, 0, [], [B]) ->
+-spec transform(State::#state{}, atom(), A::non_neg_integer(),
+                P::[erl_syntax:syntaxTree()], [erl_syntax:syntaxTree(),...]) ->
+          erl_syntax:syntaxTree() | false.
+transform(#state{}, fun_expr, 0, [], [B]) ->
     erl_syntax:type(B) =:= application andalso
         case erl_syntax_lib:analyze_application(B) of
             {M, {F, 0}} ->
@@ -351,7 +352,7 @@ const_transform(#state{}, fun_expr, 0, [], [B]) ->
             {F, 0} -> erl_syntax:implicit_fun(none, erl_syntax:atom(F), erl_syntax:integer(0));
             _ -> false
         end;
-const_transform(#state{}, fun_expr, A, P, [B]) ->
+transform(#state{}, fun_expr, A, P, [B]) ->
     case erl_syntax:type(B) of
         application -> case erl_syntax_lib:analyze_application(B) of
                            {M, {F, A}} ->
@@ -367,7 +368,9 @@ const_transform(#state{}, fun_expr, A, P, [B]) ->
                        end;
         _ -> false
     end;
-const_transform(#state{}, _, _, _, _) -> false.
+transform(#state{}, _, _, _, _) -> false.
+
+-compile({inline, [transform/2, transform/5]}).
 
 -spec implicit_fun(M::module(), F::atom(), A::arity(), O::erl_syntax:syntaxTree(), MB::erl_syntax:syntaxTree(),
                    A1::erl_syntax:syntaxTree()) ->
@@ -387,6 +390,8 @@ call(#state{pure = Fs} = State, Mod, Fun, Args) ->
 call(State, Fun, []) -> try_call(State, erlang, Fun);
 call(State, Fun, Args) ->
     lists:all(fun erl_syntax:is_literal/1, Args) andalso try_call(State, erlang, Fun, Args).
+
+-compile({inline, [call/4]}).
 
 -spec try_call(State::#state{}, Mod::module(), Fun::atom()) -> false | erl_syntax:syntaxTree().
 try_call(#state{verbose = V, file = F}, Mod, Fun) ->
@@ -442,6 +447,8 @@ is_pure_fun(A, Fs, implicit_fun) ->
     end;
 is_pure_fun(_, _, _) -> false.
 
+-compile({inline, [is_pure_fun/2, is_pure_fun/3]}).
+
 -spec concrete(Node::erl_syntax:syntaxTree()) -> term().
 concrete(Node) -> concrete(Node, erl_syntax:type(Node)).
 
@@ -451,12 +458,14 @@ concrete(Node, implicit_fun) ->
     fun M:F/A;
 concrete(Node, _) -> erl_syntax:concrete(Node).
 
+-compile({inline, [concrete/2]}).
+
 -spec compare_arguments([erl_syntax:syntaxTree()], [erl_syntax:syntaxTree()]) -> boolean().
-compare_arguments([], []) -> true;
 compare_arguments([A|X], [B|Y]) ->
     erl_syntax:type(A) =:= variable andalso erl_syntax:type(B) =:= variable
          andalso erl_syntax:variable_name(A) =:= erl_syntax:variable_name(B)
          andalso compare_arguments(X, Y);
+compare_arguments([], []) -> true;
 compare_arguments(_, _) -> false.
 
 -spec copy_pos(Source::erl_syntax:syntaxTree(), Tree::erl_syntax:syntaxTree()) -> erl_syntax:syntaxTree();
