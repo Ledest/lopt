@@ -393,33 +393,33 @@ call(State, Fun, Args) ->
 
 -compile({inline, [call/4]}).
 
--spec try_call(State::#state{}, Mod::module(), Fun::atom()) -> false | erl_syntax:syntaxTree().
-try_call(#state{verbose = V, file = F}, Mod, Fun) ->
+-spec try_call(S::#state{}, Mod::module(), Fun::atom()) -> false | erl_syntax:syntaxTree().
+try_call(S, Mod, Fun) ->
     try Mod:Fun() of
         R ->
-            V andalso io:fwrite(?MODULE_STRING ": ~s: ~p:~p() => ~p~n", [F, Mod, Fun, R]),
+            verbose(S, " ~p:~p() => ~p~n", [Mod, Fun, R]),
             erl_syntax:abstract(R)
     catch
         error:R ->
-            V andalso io:fwrite(?MODULE_STRING ": ~s: ~p:~p() => erlang:error(~p)~n", [F, Mod, Fun, R]),
+            verbose(S, " ~p:~p() => erlang:error(~p)~n", [Mod, Fun, R]),
             erl_syntax:application(erl_syntax:atom(erlang), erl_syntax:atom(error), [erl_syntax:abstract(R)]);
         _:_ -> false
     end.
 
--spec try_call(State::#state{}, Mod::module(), Fun::atom(), Args::list()) -> false | erl_syntax:syntaxTree().
-try_call(#state{verbose = V, file = F}, Mod, Fun, Args) ->
+-spec try_call(S::#state{}, Mod::module(), Fun::atom(), Args::list()) -> false | erl_syntax:syntaxTree().
+try_call(S, Mod, Fun, Args) ->
     A = [concrete(X) || X <- Args],
     try apply(Mod, Fun, A) of
         R ->
-            V andalso io:fwrite(?MODULE_STRING ": ~s:~B: ~p:~p(~ts) => ~p~n",
-                                [F, erl_syntax:get_pos(hd(Args)), Mod, Fun,
-                                 string:join([io_lib:print(erl_syntax:concrete(X)) || X <- Args], ","), R]),
+            verbose(S, "~B: ~p:~p(~ts) => ~p~n",
+                    [erl_syntax:get_pos(hd(Args)), Mod, Fun,
+                     string:join([io_lib:print(erl_syntax:concrete(X)) || X <- Args], ","), R]),
             erl_syntax:abstract(R)
     catch
         error:R ->
-            V andalso io:fwrite(?MODULE_STRING ": ~s:~B: ~p:~p(~ts) => erlang:error(~p)~n",
-                                [F, erl_syntax:get_pos(hd(Args)), Mod, Fun,
-                                 string:join([io_lib:print(erl_syntax:concrete(X)) || X <- Args], ","), R]),
+            verbose(S, "~B: ~p:~p(~ts) => erlang:error(~p)~n",
+                    [erl_syntax:get_pos(hd(Args)), Mod, Fun,
+                     string:join([io_lib:print(erl_syntax:concrete(X)) || X <- Args], ","), R]),
             erl_syntax:application(erl_syntax:atom(erlang), erl_syntax:atom(error), [erl_syntax:abstract(R)]);
         _:_ -> false
     end.
@@ -472,3 +472,8 @@ compare_arguments(_, _) -> false.
               (Source::erl_syntax:syntaxTree(), false) -> false.
 copy_pos(_, false) -> false;
 copy_pos(Source, Tree) -> erl_syntax_lib:map(fun(N) -> erl_syntax:copy_pos(Source, N) end, Tree).
+
+verbose(#state{verbose = true, file = F}, Fmt, Args) ->
+    io:put_chars([?MODULE_STRING ": ", F, $:]),
+    io:fwrite(Fmt, Args);
+verbose(_, _, _) -> ok.
