@@ -216,6 +216,7 @@
                               {timer, now_diff, 2},
                               {timer, seconds, 1},
                               unicode,
+                              {unicode_util, whitespace, 0},
                               {yecc, format_error, 1},
                               {zlib, compress, 2},
                               {zlib, gunzip, 2},
