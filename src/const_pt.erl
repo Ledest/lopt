@@ -426,7 +426,7 @@ try_call(#state{verbose = V, file = F}, Mod, Fun, Args) ->
 
 -spec is_pure(F::mfa()|{module(), {atom(), arity()}}|{atom(), arity()}|term(), Fs::sets:set(mfa())) -> boolean().
 is_pure({_, module_info, A}, _) when A =:= 0; A =:= 1 -> false;
-is_pure({M, F, A} = MFA, Fs) when is_atom(M), is_atom(F), is_integer(A) ->
+is_pure({M, F, A} = MFA, Fs) when is_atom(M), is_atom(F), is_integer(A), A >= 0 ->
     is_pure(MFA) orelse sets:is_element(M, Fs) orelse sets:is_element(MFA, Fs);
 is_pure({M, {F, A}}, Fs) -> is_pure({M, F, A}, Fs);
 is_pure({F, A}, Fs) -> is_pure({erlang, F, A}, Fs);
