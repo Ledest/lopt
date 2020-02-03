@@ -57,6 +57,7 @@
                               {calendar, is_leap_year, 1},
                               {calendar, iso_week_number, 1},
                               {calendar, last_day_of_the_month, 2},
+                              {calendar, now_to_datetime, 1},
                               {calendar, seconds_to_daystime, 1},
                               {calendar, seconds_to_time, 1},
                               {calendar, time_difference, 2},
