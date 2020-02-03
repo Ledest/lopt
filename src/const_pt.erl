@@ -73,6 +73,7 @@
                               {epp, encoding_to_string, 1},
                               {epp, format_error, 1},
                               erl_anno,
+                              erl_bits,
                               {erl_ddll, format_error, 1},
                               erl_eval,
                               erl_expand_records,
