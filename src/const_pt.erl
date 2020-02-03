@@ -82,6 +82,7 @@
                               {erl_lint, is_guard_test, 1},
                               {erl_lint, module, 1},
                               erl_parse,
+                              erl_posix_msg,
                               erl_pp,
                               erl_scan,
                               {erl_syntax, eof_marker, 0},
