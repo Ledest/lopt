@@ -218,12 +218,12 @@
                               unicode,
                               {unicode_util, whitespace, 0},
                               {yecc, format_error, 1},
-                              {zlib, compress, 2},
-                              {zlib, gunzip, 2},
-                              {zlib, gzip, 2},
-                              {zlib, uncompress, 2},
-                              {zlib, zip, 2},
-                              {zlib, unzip, 2}]).
+                              {zlib, compress, 1},
+                              {zlib, gunzip, 1},
+                              {zlib, gzip, 1},
+                              {zlib, uncompress, 1},
+                              {zlib, zip, 1},
+                              {zlib, unzip, 1}]).
 
 -record(state, {verbose :: boolean(),
                 pure = sets:new() :: sets:set(mfa()),
