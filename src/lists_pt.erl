@@ -85,10 +85,14 @@ transform(#state{} = State, _) -> State#state{node = false}.
 -spec transform(State::#state{}, atom(), arity()) -> #state{}.
 transform(#state{node = Node} = State, map, 2) ->
     [F, L] = erl_syntax:application_arguments(Node),
-    N = transform_map(Node, F, L),
-    N =/= false andalso State#state.verbose andalso
-        io:fwrite(?MODULE_STRING ": ~s ~B map/2~n", [State#state.file, erl_syntax:get_pos(Node)]),
-    State#state{node = N};
+    State#state{node = case transform_map(Node, F, L) of
+                           false -> false;
+                           N ->
+                               State#state.verbose andalso
+                                   io:fwrite(?MODULE_STRING ": ~s ~B map/2~n",
+                                             [State#state.file, erl_syntax:get_pos(Node)]),
+                               N
+                       end};
 transform(State, _F, _A) -> State#state{node = false}.
 
 -spec transform_map(State::#state{}, F::erl_syntax:syntaxTree(), L::erl_syntax:syntaxTree()) ->
