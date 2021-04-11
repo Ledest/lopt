@@ -19,6 +19,8 @@
 
 -export([parse_transform/2]).
 
+-import(erl_syntax, [set_pos/2]).
+
 -record(state, {verbose :: boolean(),
                 file = "" :: string(),
                 module :: module(),
@@ -84,19 +86,58 @@ transform(#state{node = Node, verbose = true} = State, attribute) ->
 transform(#state{} = State, _) -> State#state{node = false}.
 
 -spec transform(State::#state{}, atom(), arity()) -> #state{}.
+transform(#state{node = Node} = State, member, 2) ->
+    [E, L] = erl_syntax:application_arguments(Node),
+    State#state{node = case transform_member(E, L) of
+                           false -> false;
+                           N ->
+                               State#state.verbose andalso io:fwrite(?MODULE_STRING ": ~s ~B member/2~n",
+                                                                     [State#state.file, erl_syntax:get_pos(Node)]),
+                               N
+                       end};
 transform(#state{node = Node} = State, map, 2) ->
     [F, L] = erl_syntax:application_arguments(Node),
     State#state{node = case transform_map(Node, F, L) of
                            false -> false;
                            N ->
-                               State#state.verbose andalso
-                                   io:fwrite(?MODULE_STRING ": ~s ~B map/2~n",
-                                             [State#state.file, erl_syntax:get_pos(Node)]),
+                               State#state.verbose andalso io:fwrite(?MODULE_STRING ": ~s ~B map/2~n",
+                                                                     [State#state.file, erl_syntax:get_pos(Node)]),
                                N
                        end};
 transform(State, _F, _A) -> State#state{node = false}.
 
--spec transform_map(State::#state{}, F::erl_syntax:syntaxTree(), L::erl_syntax:syntaxTree()) ->
+-spec transform_member(M::erl_syntax:syntaxTree(), L::erl_syntax:syntaxTree()) -> erl_syntax:syntaxTree()|false.
+transform_member(M, N) ->
+    case erl_syntax:type(N) of
+        nil -> erl_syntax:copy_pos(M, erl_syntax:atom(false));
+        list ->
+            erl_syntax:type(M) =:= variable andalso erl_syntax:is_literal(N) andalso
+                begin
+                Oe = erl_syntax:operator('=:='),
+                V = erl_syntax:variable(erl_syntax:variable_name(M)),
+                {[H|T], _} = lists:foldl(fun(E, {L, S} = A) ->
+                                             T = erl_syntax:concrete(E),
+                                             case sets:is_element(T, S) of
+                                                 true -> A;
+                                                 _false ->
+                                                     P = erl_syntax:get_pos(E),
+                                                     {[set_pos(erl_syntax:infix_expr(set_pos(V, P),
+                                                                                     set_pos(Oe, P),
+                                                                                     E),
+                                                               P)|L],
+                                                      sets:add_element(T, S)}
+                                             end
+                                         end, {[], sets:new()}, erl_syntax:list_elements(N)),
+                Oo = erl_syntax:operator('orelse'),
+                lists:foldl(fun(E, A) ->
+                                P = erl_syntax:get_pos(E),
+                                set_pos(erl_syntax:infix_expr(E, set_pos(Oo, P), A), P)
+                            end, H, T)
+                end;
+        _ -> false
+    end.
+
+-spec transform_map(Node::erl_syntax:syntaxTree(), F::erl_syntax:syntaxTree(), L::erl_syntax:syntaxTree()) ->
           erl_syntax:syntaxTree()|false.
 transform_map(Node, F, L) ->
     case erl_syntax:type(F) of
