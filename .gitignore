@@ -1,9 +1,11 @@
-.rebar
-*.beam
-*~
-*.swp
-/ebin
+/.eunit
+/.rebar
+/_build
+/rebar.lock
+/deps
 /doc
+/ebin
 .project
 .kateproject
+*.plt
 erl_crash.dump
