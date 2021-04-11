@@ -32,14 +32,15 @@ parse_transform(Forms, Options) ->
     try erl_syntax_lib:analyze_forms(Forms) of
         AF ->
             Fs = sets:from_list(gl(functions, AF)),
-            State = #state{verbose = proplists:get_bool(verbose, Options),
-                           module = gv(module, AF),
-                           imports = get_imports(AF, Fs),
-                           functions = Fs},
-            {NewForms, _} = lists:mapfoldl(fun(Tree, S) ->
-                                               NewState = #state{tree = NewTree} = transform(S#state{tree = Tree}),
-                                               {erl_syntax:revert(NewTree), NewState}
-                                           end, State, Forms),
+            {NewForms, _} = lists:mapfoldl(fun(T, S) ->
+                                               State = #state{tree = Tree} = transform(S#state{tree = T}),
+                                               {erl_syntax:revert(Tree), State}
+                                           end,
+                                           #state{verbose = proplists:get_bool(verbose, Options),
+                                                  module = gv(module, AF),
+                                                  imports = get_imports(AF, Fs),
+                                                  functions = Fs},
+                                           Forms),
             NewForms
     catch
         C:E ->
