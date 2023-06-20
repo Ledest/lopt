@@ -1,4 +1,4 @@
-%%% Copyright 2016-2017 Oleksandr Chumachenko <ledest@gmail.com>
+%%% Copyright 2016-2023 Oleksandr Chumachenko <ledest@gmail.com>
 %%%
 %%% This file is part of LOpt.
 %%%
@@ -245,7 +245,7 @@
                 file = "" :: string(),
                 module :: module(),
                 exports = sets:new() :: sets:set({atom(), arity()}),
-                imports = sets:new() :: dict:dict({atom(), arity()}, module()),
+                imports = #{} :: #{ {atom(), arity()} => module()},
                 functions = sets:new() :: sets:set({atom(), arity()}),
                 tree :: erl_syntax:syntaxTree(),
                 node = false :: erl_syntax:syntaxTree()|false}).
@@ -256,8 +256,8 @@ parse_transform(Forms, Options) ->
         AF ->
             Fs = sets:from_list(gl(functions, AF)),
             State = #state{verbose = proplists:get_bool(verbose, Options),
-                           pure = sets:from_list([MFA || MFA <- ?TRANSFORM_FUNCTIONS,
-                                                                is_atom(MFA) orelse not is_pure(MFA)]),
+                           pure = sets:from_list(lists:filter(fun(MFA) -> is_atom(MFA) orelse not is_pure(MFA) end,
+                                                              ?TRANSFORM_FUNCTIONS)),
                            module = gv(module, AF),
                            exports = sets:from_list(gl(exports, AF)),
                            imports = get_imports(AF, Fs),
@@ -296,20 +296,21 @@ ga(K, L) -> [V || {Key, V} <- L, Key =:= K].
 -spec get_no_auto_import(AF::list()) -> [mfa()].
 get_no_auto_import(AF) -> lists:flatten(ga(no_auto_import, ga(compile, gl(attributes, AF)))).
 
--spec get_imports(AF::list(), Fs::sets:set({atom(), arity()})) -> dict:dict({atom(), arity()}, module()).
+-spec get_imports(AF::list(), Fs::sets:set({atom(), arity()})) -> #{{atom(), arity()} => module()}.
 get_imports(AF, Fs) ->
     NAI = sets:from_list(get_no_auto_import(AF)),
     lists:foldl(fun({M, IFs}, D) ->
                     lists:foldl(fun(FA, A) ->
                                     case sets:is_element(FA, Fs) of
-                                        false -> dict:store(FA, M, A);
+                                        false -> A#{FA => M};
                                         _true -> A
                                     end
                                 end, D, IFs)
-                end, dict:new(),
-                [{erlang, [{F, A} || {erlang, F, A} <- ?TRANSFORM_FUNCTIONS,
-                                                       erl_internal:bif(F, A),
-                                                       not sets:is_element({F, A}, NAI)]}|gl(imports, AF)]).
+                end, #{},
+                [lists:filtermap(fun({erlang, F, A}) ->
+                                     erl_internal:bif(F, A) andalso not sets:is_element({F, A}, NAI) andalso
+                                         {true, {F, A}}
+                                 end, ?TRANSFORM_FUNCTIONS)|gl(imports, AF)]).
 
 -compile({inline, [get_imports/2]}).
 
@@ -332,10 +333,11 @@ transform(#state{tree = Tree} = State) ->
 transform(#state{node = Node} = State, application) ->
     State#state{node = case erl_syntax_lib:analyze_application(Node) of
                            {M, {F, A}} -> transform(State, M, F, A);
-                           {F, A} = FA -> case dict:find(FA, State#state.imports) of
-                                              {ok, M} -> transform(State, M, F, A);
-                                              _error -> false
-                                          end;
+                           {F, A} = FA ->
+                               case State#state.imports of
+                                   #{FA := M} -> transform(State, M, F, A);
+                                   _ -> false
+                               end;
                            _ -> false
                        end};
 transform(#state{node = Node} = State, infix_expr) ->
