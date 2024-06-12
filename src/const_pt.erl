@@ -462,10 +462,10 @@ is_pure({M, F, A}) -> erl_bifs:is_pure(M, F, A).
 -spec is_pure_fun(A::erl_syntax:syntaxTree(), Fs::sets:set(mfa())) -> boolean().
 is_pure_fun(A, Fs) -> is_pure_fun(A, Fs, erl_syntax:type(A)).
 
--spec is_pure_fun(A::erl_syntax:syntaxTree(), Fs::sets:set(mfa()), atom()) -> false | erl_syntax:syntaxTree().
+-spec is_pure_fun(A::erl_syntax:syntaxTree(), Fs::sets:set(mfa()), atom()) -> boolean().
 is_pure_fun(A, Fs, implicit_fun) ->
-    try
-        is_pure(erl_syntax_lib:analyze_implicit_fun(A), Fs)
+    try erl_syntax_lib:analyze_implicit_fun(A) of
+        MFA -> is_pure(MFA, Fs)
     catch
         throw:syntax_error -> false
     end;
