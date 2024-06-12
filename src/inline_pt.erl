@@ -1,4 +1,4 @@
-%%% Copyright 2016-2017 Oleksandr Chumachenko <ledest@gmail.com>
+%%% Copyright 2016-2024 Oleksandr Chumachenko <ledest@gmail.com>
 %%%
 %%% This file is part of LOpt.
 %%%
