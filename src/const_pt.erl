@@ -310,11 +310,9 @@ get_imports(AF, Fs) ->
                                     end
                                 end, D, IFs)
                 end, #{},
-                [lists:filtermap(fun({erlang, F, A}) ->
-                                     erl_internal:bif(F, A) andalso not sets:is_element({F, A}, NAI) andalso
-                                         {true, {F, A}};
-                                    (_) -> false
-                                 end, ?TRANSFORM_FUNCTIONS)|gl(imports, AF)]).
+                [{erlang, [{F, A} || {erlang, F, A} <- ?TRANSFORM_FUNCTIONS,
+                                                       erl_internal:bif(F, A),
+                                                       not sets:is_element({F, A}, NAI)]}|gl(imports, AF)]).
 
 -compile({inline, [get_imports/2]}).
 
