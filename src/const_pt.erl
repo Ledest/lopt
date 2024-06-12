@@ -435,13 +435,13 @@ try_call(S, Mod, Fun, Args) ->
     A = [concrete(X) || X <- Args],
     try apply(Mod, Fun, A) of
         R ->
-            verbose(S, "~B: ~p:~p(~ts) => ~p~n",
+            verbose(S, "~p: ~p:~p(~ts) => ~p~n",
                     [erl_syntax:get_pos(hd(Args)), Mod, Fun,
                      string:join([io_lib:print(erl_syntax:concrete(X)) || X <- Args], ","), R]),
             erl_syntax:abstract(R)
     catch
         error:R ->
-            verbose(S, "~B: ~p:~p(~ts) => erlang:error(~p)~n",
+            verbose(S, "~p: ~p:~p(~ts) => erlang:error(~p)~n",
                     [erl_syntax:get_pos(hd(Args)), Mod, Fun,
                      string:join([io_lib:print(erl_syntax:concrete(X)) || X <- Args], ","), R]),
             erl_syntax:application(erl_syntax:atom(erlang), erl_syntax:atom(error), [erl_syntax:abstract(R)]);

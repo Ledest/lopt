@@ -91,7 +91,7 @@ transform(#state{node = Node} = State, member, 2) ->
     State#state{node = case transform_member(E, L) of
                            false -> false;
                            N ->
-                               State#state.verbose andalso io:fwrite(?MODULE_STRING ": ~s ~B member/2~n",
+                               State#state.verbose andalso io:fwrite(?MODULE_STRING ": ~s ~p member/2~n",
                                                                      [State#state.file, erl_syntax:get_pos(Node)]),
                                N
                        end};
@@ -100,7 +100,7 @@ transform(#state{node = Node} = State, map, 2) ->
     State#state{node = case transform_map(Node, F, L) of
                            false -> false;
                            N ->
-                               State#state.verbose andalso io:fwrite(?MODULE_STRING ": ~s ~B map/2~n",
+                               State#state.verbose andalso io:fwrite(?MODULE_STRING ": ~s ~p map/2~n",
                                                                      [State#state.file, erl_syntax:get_pos(Node)]),
                                N
                        end};
