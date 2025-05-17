@@ -268,7 +268,8 @@ parse_transform(Forms, Options) ->
             {NewForms, _} = lists:mapfoldl(fun(Tree, S) ->
                                                NewState = #state{tree = NewTree} = transform(S#state{tree = Tree}),
                                                {erl_syntax:revert(NewTree), NewState}
-                                           end, State, Forms),
+                                           end,
+                                           State, Forms),
             NewForms
     catch
         C:E ->
@@ -308,7 +309,8 @@ get_imports(AF, Fs) ->
                                         false -> A#{FA => M};
                                         _true -> A
                                     end
-                                end, D, IFs)
+                                end,
+                                D, IFs)
                 end,
                 #{},
                 [{erlang,

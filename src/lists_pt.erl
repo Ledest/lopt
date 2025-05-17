@@ -61,7 +61,8 @@ transform(#state{tree = Tree} = State) ->
                                                  #state{node = false} -> {T, F};
                                                  #state{node = Node} = S -> {erl_syntax:copy_pos(T, Node), S}
                                              end
-                                         end, false, Tree) of
+                                         end,
+                                         false, Tree) of
                  {_, false} -> State;
                  {NewTree, NewState} -> transform(NewState#state{tree = NewTree})
              end
@@ -127,12 +128,14 @@ transform_member(M, N) ->
                                                                P)|L],
                                                       sets:add_element(T, S)}
                                              end
-                                         end, {[], sets:new()}, erl_syntax:list_elements(N)),
+                                         end,
+                                         {[], sets:new()}, erl_syntax:list_elements(N)),
                 Oo = erl_syntax:operator('orelse'),
                 lists:foldl(fun(E, A) ->
                                 P = erl_syntax:get_pos(E),
                                 set_pos(erl_syntax:infix_expr(E, set_pos(Oo, P), A), P)
-                            end, H, T)
+                            end,
+                            H, T)
                 end;
         _ -> false
     end.
@@ -233,4 +236,5 @@ get_imports(AF, Fs) ->
                                         _true -> A
                                     end
                                 end, S, IFs)
-                end, sets:new(), ga(lists, gl(imports, AF))).
+                end,
+                sets:new(), ga(lists, gl(imports, AF))).
